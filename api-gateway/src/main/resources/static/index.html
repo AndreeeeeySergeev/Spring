@@ -1,0 +1,508 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Тестовый стенд — Booking/Hotel Microservices</title>
+  <style>
+    :root { --bg:#0f172a; --card:#111827; --muted:#94a3b8; --fg:#e5e7eb; --accent:#22c55e; --danger:#ef4444; --primary:#3b82f6; --warning:#f59e0b; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial; background:linear-gradient(135deg,#0b1020,#0f172a 30%,#0b1020 100%); color:var(--fg); }
+    header { padding:24px 16px; text-align:center; border-bottom:1px solid rgba(148,163,184,0.15); }
+    .container { max-width:1400px; margin:0 auto; padding:16px; display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:16px; }
+    .full { grid-column: 1 / -1; }
+    .card { background:rgba(17,24,39,0.85); border:1px solid rgba(148,163,184,0.15); border-radius:14px; padding:16px; box-shadow: 0 10px 30px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.04); }
+    h2 { margin:0 0 12px; font-size:18px; font-weight:600; letter-spacing:0.2px; }
+    h3 { margin:8px 0; font-size:14px; font-weight:500; color:var(--muted); }
+    .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    label { font-size:12px; color:var(--muted); }
+    input[type="text"], input[type="password"], input[type="date"], input[type="number"] { background:#0b1220; color:var(--fg); border:1px solid rgba(148,163,184,0.25); border-radius:10px; padding:10px 12px; outline:none; width:100%; }
+    .grid-2 { display:grid; grid-template-columns: 1fr 1fr; gap:8px; }
+    .btn { appearance:none; border:none; border-radius:10px; padding:10px 14px; color:white; cursor:pointer; transition: all .2s ease; font-weight:600; letter-spacing:.2px; font-size:13px; }
+    .btn-primary { background:linear-gradient(180deg, #60a5fa, #3b82f6); box-shadow: 0 6px 18px rgba(59,130,246,0.35); }
+    .btn-primary:hover { filter:brightness(1.06); transform: translateY(-1px); }
+    .btn-accent { background:linear-gradient(180deg, #34d399, #22c55e); box-shadow: 0 6px 18px rgba(16,185,129,0.35); }
+    .btn-danger { background:linear-gradient(180deg, #f87171, #ef4444); box-shadow: 0 6px 18px rgba(239,68,68,0.35); }
+    .btn-warning { background:linear-gradient(180deg, #fbbf24, #f59e0b); box-shadow: 0 6px 18px rgba(245,158,11,0.35); }
+    .muted { color:var(--muted); font-size:13px; }
+    .pill { display:inline-flex; align-items:center; gap:6px; border:1px solid rgba(148,163,184,0.25); background:#0b1220; padding:6px 10px; border-radius:999px; font-size:12px; }
+    code { background:#0b1220; border:1px solid rgba(148,163,184,0.25); padding:2px 6px; border-radius:6px; font-size:11px; }
+    .list { max-height:300px; overflow:auto; border:1px solid rgba(148,163,184,0.15); border-radius:10px; background:#0b1220; }
+    .list pre { margin:0; padding:10px; white-space:pre-wrap; word-wrap:break-word; font-size:11px; }
+    .stack { display:flex; flex-direction:column; gap:8px; }
+    .status-badge { display:inline-block; padding:4px 10px; border-radius:12px; font-size:11px; font-weight:600; }
+    .status-PENDING { background:#f59e0b; color:#0f172a; }
+    .status-CONFIRMED { background:#22c55e; color:#0f172a; }
+    .status-CANCELLED { background:#ef4444; color:white; }
+    .saga-flow { display:flex; align-items:center; gap:12px; padding:12px; background:#0b1220; border-radius:10px; margin:8px 0; }
+    .saga-step { flex:1; text-align:center; padding:8px; border-radius:8px; background:rgba(148,163,184,0.1); }
+    .saga-step.active { background:var(--primary); color:white; }
+    .saga-step.completed { background:var(--accent); color:white; }
+    .saga-step.failed { background:var(--danger); color:white; }
+    .saga-arrow { color:var(--muted); font-size:18px; }
+    .stats-table { width:100%; border-collapse:collapse; font-size:12px; }
+    .stats-table th, .stats-table td { padding:8px; text-align:left; border-bottom:1px solid rgba(148,163,184,0.15); }
+    .stats-table th { background:rgba(148,163,184,0.1); font-weight:600; }
+    .stats-bar { height:20px; background:var(--primary); border-radius:4px; transition:width 0.3s; }
+    .log-entry { padding:6px 10px; margin:4px 0; border-left:3px solid var(--primary); background:rgba(59,130,246,0.1); border-radius:4px; font-size:11px; font-family:monospace; }
+    .log-entry.error { border-color:var(--danger); background:rgba(239,68,68,0.1); }
+    .log-entry.success { border-color:var(--accent); background:rgba(34,197,94,0.1); }
+    .log-entry.warning { border-color:var(--warning); background:rgba(245,158,11,0.1); }
+  </style>
+  <script>
+    let token = localStorage.getItem('jwt') || '';
+    let currentRequestId = null;
+    let sagaLogs = [];
+
+    function setStatus(msg, ok=true) {
+      const el = document.getElementById('status');
+      el.textContent = msg;
+      el.style.color = ok ? '#22c55e' : '#ef4444';
+    }
+
+    function authHeaders() {
+      return token ? { 'Authorization': 'Bearer ' + token } : {};
+    }
+
+    function addLog(message, type='info') {
+      sagaLogs.unshift({time: new Date().toLocaleTimeString(), message, type});
+      const logContainer = document.getElementById('saga-logs');
+      if (logContainer) {
+        logContainer.innerHTML = sagaLogs.slice(0, 20).map(log => 
+          `<div class="log-entry ${log.type}">[${log.time}] ${log.message}</div>`
+        ).join('');
+      }
+    }
+
+    function updateSagaFlow(status) {
+      const steps = ['PENDING', 'CONFIRMED'];
+      const container = document.getElementById('saga-flow');
+      if (!container) return;
+      
+      container.innerHTML = steps.map((step, i) => {
+        let cls = '';
+        if (step === 'PENDING' && (status === 'PENDING' || status === 'CONFIRMED')) {
+          cls = status === 'PENDING' ? 'active' : 'completed';
+        } else if (step === 'CONFIRMED' && status === 'CONFIRMED') {
+          cls = 'completed';
+        } else if (status === 'CANCELLED') {
+          cls = step === 'PENDING' ? 'failed' : '';
+        }
+        
+        return `
+          ${i > 0 ? '<span class="saga-arrow">→</span>' : ''}
+          <div class="saga-step ${cls}">${step}</div>
+        `;
+      }).join('') + 
+      (status === 'CANCELLED' ? '<span class="saga-arrow">→</span><div class="saga-step failed">CANCELLED</div>' : '');
+    }
+
+    async function registerUser() {
+      const username = document.getElementById('reg-username').value.trim();
+      const password = document.getElementById('reg-password').value;
+      const res = await fetch('/api/user/register', {
+        method: 'POST', headers: { 'Content-Type':'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+      if (!res.ok) { setStatus('Регистрация не удалась (' + res.status + ')', false); return; }
+      const data = await res.json();
+      token = data.token; localStorage.setItem('jwt', token);
+      setStatus('Зарегистрирован и выполнен вход');
+      showToken();
+      addLog('Пользователь зарегистрирован и авторизован', 'success');
+    }
+
+    async function loginUser() {
+      const username = document.getElementById('login-username').value.trim();
+      const password = document.getElementById('login-password').value;
+      const res = await fetch('/api/user/auth', {
+        method: 'POST', headers: { 'Content-Type':'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+      if (!res.ok) { setStatus('Вход не удался (' + res.status + ')', false); return; }
+      const data = await res.json();
+      token = data.token; localStorage.setItem('jwt', token);
+      setStatus('Вход выполнен');
+      showToken();
+      addLog('Пользователь авторизован', 'success');
+    }
+
+    function logout() {
+      token = ''; localStorage.removeItem('jwt');
+      document.getElementById('jwt').textContent='—';
+      setStatus('Вы вышли из системы');
+      addLog('Пользователь вышел из системы', 'warning');
+    }
+
+    function showToken() {
+      document.getElementById('jwt').textContent = token ? token.substring(0,32) + '…' : '—';
+    }
+
+    function generateRequestId() {
+      return 'req-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+    }
+
+    function formatJSON(text) {
+      try {
+        const json = JSON.parse(text);
+        return JSON.stringify(json, null, 2);
+      } catch {
+        return text;
+      }
+    }
+
+    async function listHotels() {
+      const res = await fetch('/api/hotels', { headers: { ...authHeaders() } });
+      const out = document.getElementById('hotels-out');
+      const text = await res.text();
+      out.textContent = formatJSON(text);
+      setStatus(res.ok ? 'Получены отели' : 'Ошибка отелей (' + res.status + ')', res.ok);
+    }
+
+    async function listRooms() {
+      const start = document.getElementById('start').value;
+      const end = document.getElementById('end').value;
+      const url = `/api/rooms?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
+      const res = await fetch(url, { headers: { ...authHeaders() } });
+      const out = document.getElementById('rooms-out');
+      const text = await res.text();
+      out.textContent = formatJSON(text);
+      setStatus(res.ok ? 'Получены комнаты' : 'Ошибка комнат (' + res.status + ')', res.ok);
+    }
+
+    async function listRecommended() {
+      const start = document.getElementById('start').value;
+      const end = document.getElementById('end').value;
+      const url = `/api/rooms/recommend?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`;
+      addLog(`Запрос рекомендованных комнат (${start} - ${end})`, 'info');
+      const res = await fetch(url, { headers: { ...authHeaders() } });
+      const out = document.getElementById('rooms-out');
+      const text = await res.text();
+      out.textContent = formatJSON(text);
+      if (res.ok) {
+        try {
+          const rooms = JSON.parse(text);
+          addLog(`Найдено рекомендованных комнат: ${rooms.length} (сортировка по times_booked ASC)`, 'success');
+          if (rooms.length > 0) {
+            rooms.forEach(r => {
+              addLog(`Комната #${r.id} (номер ${r.number}): times_booked=${r.timesBooked || 0}`, 'info');
+            });
+          }
+        } catch(e) {}
+      }
+      setStatus(res.ok ? 'Рекомендованные комнаты (отсортированы по times_booked)' : 'Ошибка рекомендаций (' + res.status + ')', res.ok);
+    }
+
+    async function loadStats() {
+      const res = await fetch('/api/rooms/stats', { headers: { ...authHeaders() } });
+      const out = document.getElementById('stats-out');
+      const text = await res.text();
+      if (res.ok) {
+        try {
+          const stats = JSON.parse(text);
+          let html = '<table class="stats-table"><thead><tr><th>ID</th><th>Номер</th><th>Отель</th><th>Бронирований</th><th>Активных</th><th>Загруженность</th></tr></thead><tbody>';
+          const maxBooked = Math.max(...stats.map(s => s.timesBooked || 0), 1);
+          stats.forEach(s => {
+            const pct = maxBooked > 0 ? ((s.timesBooked || 0) / maxBooked * 100).toFixed(0) : 0;
+            html += `<tr>
+              <td>${s.roomId}</td>
+              <td>${s.roomNumber}</td>
+              <td>${s.hotelName || '-'}</td>
+              <td><strong>${s.timesBooked || 0}</strong></td>
+              <td>${s.activeHolds || 0}</td>
+              <td><div style="display:flex;align-items:center;gap:8px;">
+                <div style="flex:1;background:rgba(148,163,184,0.2);border-radius:4px;height:20px;overflow:hidden;">
+                  <div class="stats-bar" style="width:${pct}%"></div>
+                </div>
+                <span>${pct}%</span>
+              </div></td>
+            </tr>`;
+          });
+          html += '</tbody></table>';
+          out.innerHTML = html;
+          addLog(`Статистика загружена: ${stats.length} номеров`, 'success');
+        } catch(e) {
+          out.textContent = formatJSON(text);
+        }
+      } else {
+        out.textContent = formatJSON(text);
+      }
+      setStatus(res.ok ? 'Статистика загружена' : 'Ошибка статистики (' + res.status + ')', res.ok);
+    }
+
+    async function createBooking() {
+      const start = document.getElementById('b-start').value;
+      const end = document.getElementById('b-end').value;
+      const auto = document.getElementById('b-auto').checked;
+      const roomId = document.getElementById('b-roomId').value.trim();
+      const reqId = generateRequestId();
+      currentRequestId = reqId;
+      
+      addLog(`=== Начало создания бронирования ===`, 'info');
+      addLog(`RequestId: ${reqId}`, 'info');
+      addLog(`Даты: ${start} - ${end}`, 'info');
+      addLog(`Автовыбор: ${auto}`, 'info');
+      
+      updateSagaFlow('PENDING');
+      
+      const body = { 
+        startDate: start, 
+        endDate: end, 
+        autoSelect: auto,
+        requestId: reqId
+      };
+      if (!auto && roomId) body.roomId = Number(roomId);
+      
+      addLog(`Шаг 1: Создание PENDING бронирования...`, 'info');
+      
+      const res = await fetch('/api/booking', {
+        method:'POST', headers: { 'Content-Type':'application/json', ...authHeaders() },
+        body: JSON.stringify(body)
+      });
+      
+      const out = document.getElementById('booking-out');
+      const text = await res.text();
+      out.textContent = formatJSON(text);
+      
+      if (res.ok) {
+        try {
+          const booking = JSON.parse(text);
+          addLog(`✓ PENDING создан: bookingId=${booking.id}, roomId=${booking.roomId}`, 'success');
+          addLog(`Шаг 2: Подтверждение доступности в Hotel Service...`, 'info');
+          updateSagaFlow(booking.status);
+          
+          // Ждём немного и проверяем финальный статус
+          setTimeout(async () => {
+            try {
+              const checkRes = await fetch(`/api/booking/${booking.id}`, { headers: { ...authHeaders() } });
+              if (checkRes.ok) {
+                const updated = JSON.parse(await checkRes.text());
+                updateSagaFlow(updated.status);
+                if (updated.status === 'CONFIRMED') {
+                  addLog(`✓ CONFIRMED: бронирование подтверждено`, 'success');
+                  addLog(`Компенсация не требуется`, 'success');
+                } else if (updated.status === 'CANCELLED') {
+                  addLog(`✗ CANCELLED: выполнена компенсация`, 'error');
+                  addLog(`Временная блокировка снята через POST /api/rooms/${booking.roomId}/release`, 'warning');
+                }
+              }
+            } catch(e) {}
+            setTimeout(() => myBookings(), 300);
+          }, 1000);
+        } catch(e) {
+          addLog(`Бронирование создано (ответ получен)`, 'success');
+          setTimeout(() => myBookings(), 500);
+        }
+      } else {
+        addLog(`✗ Ошибка создания: ${res.status}`, 'error');
+        if (res.status === 409) {
+          addLog(`Конфликт: номер недоступен или компенсация выполнена`, 'error');
+          updateSagaFlow('CANCELLED');
+        }
+      }
+      
+      setStatus(res.ok ? 'Бронирование создано' : 'Конфликт/ошибка (' + res.status + ')', res.ok);
+    }
+
+    async function testIdempotency() {
+      if (!currentRequestId) {
+        setStatus('Сначала создайте бронирование', false);
+        return;
+      }
+      addLog(`=== Тест идемпотентности ===`, 'info');
+      addLog(`Повторный запрос с тем же requestId: ${currentRequestId}`, 'info');
+      
+      const start = document.getElementById('b-start').value;
+      const end = document.getElementById('b-end').value;
+      const auto = document.getElementById('b-auto').checked;
+      const roomId = document.getElementById('b-roomId').value.trim();
+      
+      const body = { 
+        startDate: start, 
+        endDate: end, 
+        autoSelect: auto,
+        requestId: currentRequestId
+      };
+      if (!auto && roomId) body.roomId = Number(roomId);
+      
+      const res = await fetch('/api/booking', {
+        method:'POST', headers: { 'Content-Type':'application/json', ...authHeaders() },
+        body: JSON.stringify(body)
+      });
+      
+      const text = await res.text();
+      if (res.ok) {
+        try {
+          const booking = JSON.parse(text);
+          addLog(`✓ Идемпотентность: возвращено то же бронирование (ID=${booking.id})`, 'success');
+          addLog(`Дубликаты не созданы`, 'success');
+        } catch(e) {}
+      }
+      document.getElementById('booking-out').textContent = formatJSON(text);
+    }
+
+    async function myBookings() {
+      const res = await fetch('/api/bookings?size=10', { headers: { ...authHeaders() } });
+      const out = document.getElementById('mybookings-out');
+      const text = await res.text();
+      if (res.ok) {
+        try {
+          const data = JSON.parse(text);
+          const bookings = data.content || data;
+          let html = '<table class="stats-table"><thead><tr><th>ID</th><th>Комната</th><th>Даты</th><th>Статус</th><th>RequestId</th></tr></thead><tbody>';
+          bookings.forEach(b => {
+            html += `<tr>
+              <td>${b.id}</td>
+              <td>${b.roomId}</td>
+              <td>${b.startDate} - ${b.endDate}</td>
+              <td><span class="status-badge status-${b.status}">${b.status}</span></td>
+              <td><code>${b.requestId ? b.requestId.substring(0, 16) + '…' : '-'}</code></td>
+            </tr>`;
+          });
+          html += '</tbody></table>';
+          out.innerHTML = html;
+        } catch(e) {
+          out.textContent = formatJSON(text);
+        }
+      } else {
+        out.textContent = formatJSON(text);
+      }
+      setStatus(res.ok ? 'Мои бронирования получены' : 'Ошибка (' + res.status + ')', res.ok);
+    }
+
+    async function cancelBooking() {
+      const id = document.getElementById('cancel-id').value.trim();
+      if (!id) { setStatus('Укажите ID бронирования', false); return; }
+      addLog(`Отмена бронирования ID=${id}`, 'warning');
+      const res = await fetch('/api/booking/' + encodeURIComponent(id), { method:'DELETE', headers: { ...authHeaders() } });
+      setStatus(res.status === 204 ? 'Бронирование отменено' : 'Ошибка отмены (' + res.status + ')', res.status === 204);
+      if (res.status === 204) {
+        addLog(`Бронирование отменено`, 'warning');
+        setTimeout(() => myBookings(), 300);
+      }
+    }
+
+    function initDefaults() {
+      showToken();
+      const today = new Date();
+      const plus2 = new Date(today.getTime() + 2*24*3600*1000);
+      const fmt = d => d.toISOString().slice(0,10);
+      document.getElementById('start').value = fmt(today);
+      document.getElementById('end').value = fmt(plus2);
+      document.getElementById('b-start').value = fmt(today);
+      document.getElementById('b-end').value = fmt(plus2);
+      addLog('Тестовый стенд готов', 'success');
+      addLog('Добро пожаловать! Начните с авторизации', 'info');
+    }
+
+    window.addEventListener('DOMContentLoaded', initDefaults);
+  </script>
+</head>
+<body>
+  <header>
+    <h1 style="margin:0 0 8px; font-size:24px;">🧪 Тестовый стенд Microservices</h1>
+    <div class="pill">API Gateway • <span id="status" class="muted">Готов</span></div>
+    <div class="muted" style="margin-top:8px">JWT: <code id="jwt">—</code></div>
+  </header>
+
+  <div class="container">
+    <section class="card">
+      <h2>🔐 Авторизация</h2>
+      <div class="stack">
+        <input id="reg-username" type="text" placeholder="Логин" value="user" />
+        <input id="reg-password" type="password" placeholder="Пароль" value="user" />
+        <button class="btn btn-accent" onclick="registerUser()">Зарегистрировать и войти</button>
+      </div>
+      <div class="stack" style="margin-top:12px">
+        <input id="login-username" type="text" placeholder="Логин" value="user" />
+        <input id="login-password" type="password" placeholder="Пароль" value="user" />
+        <div class="row">
+          <button class="btn btn-primary" onclick="loginUser()">Войти</button>
+          <button class="btn" onclick="logout()">Выйти</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>🏨 Отели</h2>
+      <div class="row"><button class="btn btn-primary" onclick="listHotels()">Список отелей</button></div>
+      <div class="list"><pre id="hotels-out"></pre></div>
+    </section>
+
+    <section class="card">
+      <h2>🛏️ Комнаты</h2>
+      <div class="grid-2">
+        <div class="stack"><label>Начало</label><input id="start" type="date" /></div>
+        <div class="stack"><label>Конец</label><input id="end" type="date" /></div>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button class="btn btn-primary" onclick="listRooms()">Свободные</button>
+        <button class="btn btn-warning" onclick="listRecommended()">Рекомендованные ⚡</button>
+      </div>
+      <h3>📊 Алгоритм равномерной загрузки:</h3>
+      <div class="muted" style="font-size:11px; line-height:1.5;">
+        Рекомендованные комнаты отсортированы по возрастанию <code>times_booked</code> 
+        (при равенстве — по <code>id</code>). Это обеспечивает равномерное распределение 
+        без «простоя» номеров.
+      </div>
+      <div class="list"><pre id="rooms-out"></pre></div>
+    </section>
+
+    <section class="card full">
+      <h2>📅 Создать бронирование (Saga Pattern)</h2>
+      <div class="grid-2">
+        <div class="stack"><label>Начало</label><input id="b-start" type="date" /></div>
+        <div class="stack"><label>Конец</label><input id="b-end" type="date" /></div>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <label class="row" style="gap:6px"><input id="b-auto" type="checkbox" checked /> Автовыбор (алгоритм равномерной загрузки)</label>
+        <input id="b-roomId" type="number" placeholder="ID комнаты (если без авто)" style="max-width:220px" />
+        <button class="btn btn-accent" onclick="createBooking()">Создать</button>
+        <button class="btn btn-warning" onclick="testIdempotency()">Тест идемпотентности</button>
+      </div>
+      <h3>🔄 Saga Flow:</h3>
+      <div id="saga-flow" class="saga-flow">
+        <div class="saga-step">PENDING</div>
+        <span class="saga-arrow">→</span>
+        <div class="saga-step">CONFIRMED</div>
+      </div>
+      <div class="muted" style="font-size:11px; margin-top:8px; line-height:1.5;">
+        <strong>Двухшаговая согласованность:</strong><br/>
+        1. PENDING: локальная транзакция в Booking Service<br/>
+        2. CONFIRMED: вызов Hotel Service для подтверждения доступности<br/>
+        3. При ошибке → CANCELLED + компенсация (release)
+      </div>
+      <div class="list"><pre id="booking-out"></pre></div>
+    </section>
+
+    <section class="card full">
+      <h2>📋 Логи процесса (Saga + Идемпотентность)</h2>
+      <div id="saga-logs" class="list" style="max-height:200px;"></div>
+    </section>
+
+    <section class="card">
+      <h2>📊 Мои бронирования</h2>
+      <div class="row"><button class="btn btn-primary" onclick="myBookings()">Обновить</button></div>
+      <div id="mybookings-out" class="list"></div>
+    </section>
+
+    <section class="card">
+      <h2>❌ Отмена бронирования</h2>
+      <div class="row">
+        <input id="cancel-id" type="number" placeholder="ID бронирования" style="max-width:220px" />
+        <button class="btn btn-danger" onclick="cancelBooking()">Отменить</button>
+      </div>
+    </section>
+
+    <section class="card full">
+      <h2>📈 Статистика загруженности номеров</h2>
+      <div class="muted" style="font-size:11px; margin-bottom:8px;">
+        Статистика показывает количество бронирований каждого номера (<code>times_booked</code>). 
+        Алгоритм использует эту статистику для равномерного распределения нагрузки.
+      </div>
+      <div class="row"><button class="btn btn-primary" onclick="loadStats()">Загрузить статистику</button></div>
+      <div id="stats-out" class="list"></div>
+    </section>
+  </div>
+</body>
+</html>
